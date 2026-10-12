@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}Page Not Found - Oxide Blog{% endblock %}
+
+{% block content %}
+<section class="not-found-section">
+    <div class="empty-state">
+        <span class="error-code">404</span>
+        <h1 class="empty-title">Article or Page Not Found</h1>
+        <p class="empty-text">
+            {{ message | default(value="The requested article does not exist or has not been published yet.") }}
+        </p>
+        <div class="not-found-actions">
+            <a href="/" class="btn-action">Return to Homepage</a>
+        </div>
+    </div>
+</section>
+{% endblock %}

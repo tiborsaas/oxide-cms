@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}{{ post.title }} - Oxide Blog{% endblock %}
+
+{% block content %}
+<article class="single-post">
+    <div class="post-navigation-bar">
+        <a href="/" class="back-link">
+            <span class="back-arrow">←</span> All articles
+        </a>
+        {% if post.category %}
+        <a href="/category/{{ post.category.slug }}" class="category-breadcrumb">
+            In {{ post.category.name }}
+        </a>
+        {% endif %}
+    </div>
+
+    <header class="post-header">
+        <h1 class="single-post-title">{{ post.title }}</h1>
+
+        <div class="single-post-meta">
+            <time datetime="{{ post.created_at }}" class="meta-date">
+                Published {{ post.created_at | truncate(length=10, end="") }}
+            </time>
+            {% if post.category %}
+            <span class="meta-separator">•</span>
+            <a href="/category/{{ post.category.slug }}" class="post-category-tag">
+                {{ post.category.name }}
+            </a>
+            {% endif %}
+        </div>
+    </header>
+
+    {% if post.excerpt %}
+    <div class="post-standfirst">
+        {{ post.excerpt }}
+    </div>
+    {% endif %}
+
+    <div class="post-body">
+        {{ post.content | linebreaksbr | safe }}
+    </div>
+
+    <footer class="single-post-footer">
+        <div class="post-footer-actions">
+            <a href="/" class="btn-action">← Return to Articles</a>
+            <a href="/api/posts/{{ post.slug }}" target="_blank" rel="noopener" class="api-inspect-link">
+                Inspect Raw JSON ↗
+            </a>
+        </div>
+    </footer>
+</article>
+{% endblock %}
