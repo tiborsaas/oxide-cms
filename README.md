@@ -394,6 +394,20 @@ cms.yourdomain.com {
 }
 ```
 
+#### Deploying with Dokploy
+Dokploy uses Traefik as its reverse proxy and runs its own dashboard on host port `3000`.
+
+1. Create a new service in Dokploy and select **Compose** (or **Application** pointing to this Git repo).
+2. **Ports & Routing**:
+   - In Dokploy, go to **Domains** -> Add your domain (e.g., `cms.yourdomain.com`).
+   - Set the target container port to **`3000`** (internal port).
+   - Dokploy's Traefik will automatically route web traffic to container port 3000 internally.
+   - Host port mapping in `docker-compose.yml` defaults to **`3001:3000`** (`HOST_PORT=3001`) to avoid colliding with the Dokploy dashboard on port 3000.
+3. **Environment Variables**:
+   - Set `ADMIN_USERNAME`, `ADMIN_PASSWORD`, and `JWT_SECRET` in Dokploy's Environment tab.
+4. **Persistent SQLite Storage**:
+   - The `./data` directory will be mounted to `/data` in the container.
+
 #### Deploying with Coolify / Portainer
 1. Add a new service using **Docker Compose**.
 2. Point it to this repository.

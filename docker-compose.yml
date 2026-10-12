@@ -3,10 +3,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: oxide-cms
     restart: unless-stopped
+    expose:
+      # Internal port for Dokploy / Traefik reverse proxy
+      - "3000"
     ports:
-      - "${PORT:-3000}:3000"
+      # Defaults to host port 3001 to avoid colliding with Dokploy dashboard on 3000
+      - "${HOST_PORT:-3001}:3000"
     environment:
       - HOST=0.0.0.0
       - PORT=3000
@@ -15,7 +18,7 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin_secret_pass}
       - JWT_SECRET=${JWT_SECRET:-super_secret_headless_cms_jwt_key_change_in_prod}
     volumes:
-      # Mount host ./data folder to /data inside the container
+      # Mount host ./data directory to /data inside container
       - ./data:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
