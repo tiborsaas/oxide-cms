@@ -91,9 +91,12 @@ async fn post_detail_handler(
         None => return Ok(render_404(&state, &format!("Post '{slug}' was not found"))),
     };
 
+    let content_html = crate::markdown::markdown_to_html(&post.content);
+
     let mut ctx = Context::new();
     ctx.insert("title", &format!("{} - Oxide Blog", post.title));
     ctx.insert("post", &post);
+    ctx.insert("content_html", &content_html);
 
     Ok(render(&state, "post.html", &ctx)?.into_response())
 }
