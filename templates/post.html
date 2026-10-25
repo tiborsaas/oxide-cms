@@ -38,7 +38,11 @@
     {% endif %}
 
     <div class="post-body">
-        {{ post.content | linebreaksbr | safe }}
+        {% if content_html %}
+            {{ content_html | safe }}
+        {% else %}
+            {{ post.content | markdown | safe }}
+        {% endif %}
     </div>
 
     <footer class="single-post-footer">
