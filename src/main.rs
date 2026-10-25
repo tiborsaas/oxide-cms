@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("SQLite database initialized and migrations applied successfully");
 
     tracing::info!("Compiling Tera templates from templates/**/*.html");
-    let tera = tera::Tera::new("templates/**/*.html").map_err(|e| {
+    let tera = oxide_cms::markdown::init_tera().map_err(|e| {
         tracing::error!("Tera template initialization failed: {e}");
         Box::new(e) as Box<dyn std::error::Error>
     })?;
