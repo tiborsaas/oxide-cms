@@ -24,7 +24,7 @@ async fn spawn_test_app() -> (String, reqwest::Client) {
         jwt_secret: "test_jwt_secret_key_12345".to_string(),
     };
 
-    let tera = tera::Tera::new("templates/**/*.html").expect("Failed to initialize Tera templates");
+    let tera = oxide_cms::markdown::init_tera().expect("Failed to initialize Tera templates");
     let state = AppState {
         pool,
         config,
@@ -449,4 +449,92 @@ async fn test_web_templates_and_static_assets() {
     let not_found_html = not_found_res.text().await.unwrap();
     assert!(not_found_html.contains("404"));
     assert!(not_found_html.contains("Article or Page Not Found"));
+}
+
+#[tokio::test]
+async fn test_article_markdown_to_html_rendering() {
+    let (base_url, client) = spawn_test_app().await;
+
+    // 1. Log in to get admin token
+    let auth_res: Value = client
+        .post(format!("{base_url}/api/auth/login"))
+        .json(&json!({
+            "username": "admin",
+            "password": "supersecretpass"
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let token = auth_res["token"].as_str().unwrap();
+
+    // 2. Create article stored as Markdown
+    let md_content = r#"## Introduction to Rust Markdown
+
+This article tests **bold text**, *italic text*, and [Oxide](https://github.com/oxide).
+
+### Features
+- Native speed
+- Type safety
+- CommonMark compliant
+
+Here is some sample code:
+```rust
+fn compute_answer() -> i32 {
+    42
+}
+```
+
+> Markdown quotes are supported.
+"#;
+
+    let create_res = client
+        .post(format!("{base_url}/api/posts"))
+        .bearer_auth(token)
+        .json(&json!({
+            "title": "Markdown Showcase Article",
+            "slug": "markdown-showcase",
+            "content": md_content,
+            "excerpt": "A post testing markdown conversion to HTML.",
+            "published": true
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create_res.status(), StatusCode::CREATED);
+
+    // 3. Verify in database/API that the article is still stored as raw markdown
+    let api_res = client
+        .get(format!("{base_url}/api/posts/markdown-showcase"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(api_res.status(), StatusCode::OK);
+    let post_json: Value = api_res.json().await.unwrap();
+    assert_eq!(post_json["content"].as_str().unwrap(), md_content);
+
+    // 4. Verify that displaying the article converts markdown to HTML
+    let web_res = client
+        .get(format!("{base_url}/posts/markdown-showcase"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(web_res.status(), StatusCode::OK);
+    let web_html = web_res.text().await.unwrap();
+
+    // Verify converted HTML tags
+    assert!(web_html.contains("<h2>Introduction to Rust Markdown</h2>"));
+    assert!(web_html.contains("<strong>bold text</strong>"));
+    assert!(web_html.contains("<em>italic text</em>"));
+    assert!(web_html.contains(r#"<a href="https://github.com/oxide">Oxide</a>"#));
+    assert!(web_html.contains("<h3>Features</h3>"));
+    assert!(web_html.contains("<ul>"));
+    assert!(web_html.contains("<li>Native speed</li>"));
+    assert!(web_html.contains("<li>Type safety</li>"));
+    assert!(web_html.contains("<li>CommonMark compliant</li>"));
+    assert!(web_html.contains(r#"<code class="language-rust">fn compute_answer() -&gt; i32 {"#));
+    assert!(web_html.contains("<blockquote>"));
+    assert!(web_html.contains("<p>Markdown quotes are supported.</p>"));
 }
