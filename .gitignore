@@ -1,6 +1,12 @@
 /target
-# *.db
-# *.db-shm
-# *.db-wal
 .env
 k6
+
+# SQLite Database files (keep local and server data out of Git)
+*.db
+*.db-shm
+*.db-wal
+data/*.db
+data/*.db-shm
+data/*.db-wal
+!data/.gitkeep

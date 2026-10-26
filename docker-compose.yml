@@ -18,11 +18,19 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin_secret_pass}
       - JWT_SECRET=${JWT_SECRET:-super_secret_headless_cms_jwt_key_change_in_prod}
     volumes:
-      # Mount host ./data directory to /data inside container
-      - ./data:/data
+      # Persistent storage for SQLite:
+      # - Local Development (default): mounts host ./data to container /data,
+      #   allowing direct inspection of oxide_cms.db with local SQL client apps (TablePlus, DBeaver, etc.)
+      # - Production Deployment: set DATA_VOLUME=oxide_cms_data in .env or Dokploy/Coolify to mount
+      #   a persistent Docker named volume from the server disk so data is never wiped on redeployment.
+      - "${DATA_VOLUME:-./data}:/data"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 5s
+
+volumes:
+  oxide_cms_data:
+    name: ${DATA_VOLUME_NAME:-oxide_cms_data}

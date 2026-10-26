@@ -32,8 +32,13 @@ Default configuration in `.env`:
 HOST=127.0.0.1
 PORT=3000
 
-# SQLite Database
-DATABASE_URL=sqlite:oxide_cms.db
+# SQLite Database (local development)
+DATABASE_URL=sqlite:data/oxide_cms.db
+
+# Docker Persistent Storage Volume
+# - Local dev: ./data (mounts host ./data for local SQL client inspection)
+# - Production server: oxide_cms_data (Docker named volume on server disk)
+DATA_VOLUME=./data
 
 # Admin Credentials
 ADMIN_USERNAME=admin
@@ -300,39 +305,43 @@ Oxide CMS stores its SQLite database inside the container at `/data/oxide_cms.db
 
 ---
 
-#### Volume Configuration Options
+#### Inspecting SQLite Database Locally
 
-##### Option A: Named Docker Volume (Default & Recommended)
-By default, `docker-compose.yml` uses a named Docker volume `oxide_cms_data`:
+Because the local database is kept at `./data/oxide_cms.db`, you can directly inspect, query, and modify it using your preferred SQL client app:
+- **TablePlus / DBeaver / Beekeeper Studio / DB Browser for SQLite**: Open a new SQLite connection and select the file `./data/oxide_cms.db` in this repository.
+- **SQLite CLI**:
+  ```bash
+  sqlite3 data/oxide_cms.db
+  ```
+Because SQLite uses **WAL mode**, keep in mind that active transactions write to `data/oxide_cms.db-wal` and `data/oxide_cms.db-shm` in the same directory. Modern SQL clients automatically handle WAL files. Both native execution (`cargo run`) and local Docker Compose (`docker compose up`) write directly to this same file.
+
+---
+
+#### Volume Configuration: Local vs Production Deployment
+
+`docker-compose.yml` uses a configurable persistent volume `${DATA_VOLUME:-./data}:/data`:
+
 ```yaml
 services:
   oxide-cms:
-    ...
     volumes:
-      - oxide_cms_data:/data
+      - "${DATA_VOLUME:-./data}:/data"
 
 volumes:
   oxide_cms_data:
-    name: oxide_cms_data
+    name: ${DATA_VOLUME_NAME:-oxide_cms_data}
 ```
-- **Pros**: Cross-platform (works seamlessly on Linux, macOS, and Windows), Docker manages file permissions, highest I/O performance on Docker Desktop.
-- **Data Location**: Managed internally by Docker under `/var/lib/docker/volumes/oxide_cms_data/_data` (on Linux).
 
-##### Option B: Host Directory Bind Mount
-If you prefer the database file directly accessible in a folder on your host machine (for example, `./data`), edit `docker-compose.yml`:
-```yaml
-services:
-  oxide-cms:
-    ...
-    volumes:
-      - ./data:/data
-```
-Then create the directory before starting:
-```bash
-mkdir -p data
-docker compose up -d
-```
-The database will be created directly at `./data/oxide_cms.db`.
+##### 1. Local Development (Default: `./data`)
+When `DATA_VOLUME` is omitted or set to `./data`, Docker Compose binds your host `./data` directory to `/data` in the container.
+- Any changes made by the container are instantly reflected on your local disk at `./data/oxide_cms.db`.
+- Easily inspectable via GUI SQL clients.
+
+##### 2. Production Deployment (Docker Named Volume: `oxide_cms_data`)
+On a production server, you want a persistent volume mounted from the server disk so that data is **not wiped when a new version of the app is deployed**:
+- Set `DATA_VOLUME=oxide_cms_data` in your server's `.env` or PaaS settings (Dokploy, Coolify, Portainer).
+- Docker stores and manages the data in `/var/lib/docker/volumes/oxide_cms_data/_data` on the server disk.
+- When you deploy a new version, pull a new image, or rebuild the container, the new container mounts the exact same `oxide_cms_data` volume. No data is lost.
 
 ---
 
@@ -405,14 +414,15 @@ Dokploy uses Traefik as its reverse proxy and runs its own dashboard on host por
    - Host port mapping in `docker-compose.yml` defaults to **`3001:3000`** (`HOST_PORT=3001`) to avoid colliding with the Dokploy dashboard on port 3000.
 3. **Environment Variables**:
    - Set `ADMIN_USERNAME`, `ADMIN_PASSWORD`, and `JWT_SECRET` in Dokploy's Environment tab.
+   - Set `DATA_VOLUME=oxide_cms_data` to mount the persistent Docker named volume from the server disk.
 4. **Persistent SQLite Storage**:
-   - The `./data` directory will be mounted to `/data` in the container.
+   - The named volume `oxide_cms_data` persists across every new deployment, ensuring data is never wiped when Dokploy rebuilds or pulls a new version.
 
 #### Deploying with Coolify / Portainer
 1. Add a new service using **Docker Compose**.
 2. Point it to this repository.
-3. In the storage / persistent volume settings, ensure `/data` is mounted to a persistent volume disk.
-4. Set the environment variables (`ADMIN_USERNAME`, `ADMIN_PASSWORD`, `JWT_SECRET`).
+3. In the environment variables, set `DATA_VOLUME=oxide_cms_data` (along with `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `JWT_SECRET`).
+4. Docker will automatically mount the persistent named volume from the server disk to `/data`.
 
 ---
 
