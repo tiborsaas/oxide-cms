@@ -5,31 +5,71 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{{ title | default(value="Oxide Blog") }}{% endblock %}</title>
+    <meta name="theme-color" content="#0c0c0b">
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
-        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Instrument+Serif:ital@0;1&display=swap"
         rel="stylesheet">
 </head>
 
 <body>
+    <!-- Grain & Scanline Overlays -->
+    <svg class="grain-defs" aria-hidden="true">
+        <filter id="grain">
+            <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch" />
+            <feColorMatrix type="saturate" values="0" />
+        </filter>
+    </svg>
+    <div class="grain" aria-hidden="true"></div>
+    <div class="scanlines" aria-hidden="true"></div>
+
     <div class="site-wrapper">
-        <header class="site-header">
-            <div class="header-inner">
-                <a href="/" class="site-brand">
-                    <span class="brand-badge">⚡</span>
-                    <span class="brand-name">OXIDE<span class="brand-accent">.CMS</span></span>
+        <!-- Global Telemetry Topbar -->
+        <header class="topbar">
+            <div class="topbar__left">
+                <span class="topbar__edition">VOL. 01 // SYS.OXIDE</span>
+                <span class="topbar__sep">/</span>
+                <span class="topbar__date">REALTIME BROADSHEET</span>
+            </div>
+            <nav class="topbar__controls site-nav">
+                <a href="/" class="nav-link">Articles</a>
+                <a href="/api" class="nav-link nav-pill" target="_blank" rel="noopener">[API DOCS]</a>
+                <a href="/api/health" class="nav-link nav-status" target="_blank" rel="noopener" title="System Health">
+                    <span class="status-dot blink-green">●</span>
+                    <span class="status-text">LIVE</span>
                 </a>
-                <nav class="site-nav">
-                    <a href="/" class="nav-link">Articles</a>
-                    <a href="/api" class="nav-link nav-pill" target="_blank" rel="noopener">API Docs</a>
-                    <a href="/api/health" class="nav-link nav-status" target="_blank" rel="noopener"
-                        title="System Health">
-                        <span class="status-dot"></span>
-                        <span class="status-text">Live</span>
+            </nav>
+        </header>
+
+        <!-- Primary Brand Masthead -->
+        <header class="site-header masthead" aria-label="Oxide CMS Masthead">
+            <div class="header-inner masthead__brand-row">
+                <div class="masthead__identity">
+                    <a href="/" class="site-brand">
+                        <div class="brand-title-wrap">
+                            <span class="brand-badge glyph-symbol">⚡</span>
+                            <span class="brand-name title"><span class="title__line">OXIDE</span><span class="title__line title__line--outline">.CMS</span></span>
+                        </div>
+                        <div class="masthead__deck">
+                            <p class="tagline"><em>Engineering & Design Notes</em></p>
+                            <p class="masthead__subdeck">Minimalist headless CMS &amp; technical broadsheet powered by Rust &amp; SQLite.</p>
+                        </div>
                     </a>
-                </nav>
+                </div>
+
+                <div class="masthead__telemetry-badge">
+                    <div class="badge-header-col">
+                        <span class="badge-label">SYSTEM HEALTH</span>
+                        <span class="badge-status-pill"><span class="blink-green">●</span> 200 OK</span>
+                    </div>
+                    <span class="badge-master-val">&lt;1MS</span>
+                    <div class="badge-details">
+                        <span>ENGINE: <strong>AXUM / RUST</strong></span>
+                        <span>STORE: <strong>SQLITE WAL</strong></span>
+                    </div>
+                </div>
             </div>
         </header>
 
@@ -39,12 +79,21 @@
 
         <footer class="site-footer">
             <div class="footer-inner">
+                <div class="footer-masthead">
+                    <span class="footer-brand"><span class="glyph-symbol">■</span> OXIDE.CMS TECHNICAL BROADSHEET</span>
+                    <span class="footer-sub">// PRINTED IN THE PRESENT TENSE</span>
+                </div>
                 <p class="footer-copy">
                     Powered by <a href="https://github.com/tokio-rs/axum" target="_blank" rel="noopener">Axum</a>,
-                    <a href="https://sqlite.org" target="_blank" rel="noopener">SQLite</a> &
+                    <a href="https://sqlite.org" target="_blank" rel="noopener">SQLite</a> &amp;
                     <a href="https://github.com/Keats/tera" target="_blank" rel="noopener">Tera</a>.
                 </p>
                 <p class="footer-sub">A minimalist headless CMS and blog engine written in Rust.</p>
+                <div class="footer-nav">
+                    <a href="/">[ ARTICLES ]</a>
+                    <a href="/api" target="_blank" rel="noopener">[ API DOCS ]</a>
+                    <a href="/api/health" target="_blank" rel="noopener">[ HEALTH TELEMETRY ]</a>
+                </div>
             </div>
         </footer>
     </div>

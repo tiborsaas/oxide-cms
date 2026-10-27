@@ -3,25 +3,35 @@
 {% block title %}{{ post.title }} - Oxide Blog{% endblock %}
 
 {% block content %}
-<article class="single-post">
-    <div class="post-navigation-bar">
-        <a href="/" class="back-link">
-            <span class="back-arrow">←</span> All articles
-        </a>
-        {% if post.category %}
-        <a href="/category/{{ post.category.slug }}" class="category-breadcrumb">
-            In {{ post.category.name }}
-        </a>
-        {% endif %}
+<article class="single-post article-main">
+    <div class="post-navigation-bar article-topbar">
+        <div class="article-topbar__nav">
+            <a href="/" class="back-link article-topbar__back" title="Return to Articles Archive">
+                <span class="glyph-symbol">←</span>
+                <span>All articles</span>
+            </a>
+            {% if post.category %}
+            <span class="article-topbar__sep">/</span>
+            <a href="/category/{{ post.category.slug }}" class="category-breadcrumb">
+                In {{ post.category.name }}
+            </a>
+            {% endif %}
+        </div>
+        <div class="article-topbar__actions">
+            <a href="/api/posts/{{ post.slug }}" target="_blank" rel="noopener" class="article-btn-action api-inspect-link">
+                [RAW JSON ↗]
+            </a>
+            <button type="button" class="article-btn-action" onclick="window.print()">
+                [PRINT / PDF]
+            </button>
+        </div>
     </div>
 
     <header class="post-header">
-        <h1 class="single-post-title">{{ post.title }}</h1>
-
-        <div class="single-post-meta">
-            <time datetime="{{ post.created_at }}" class="meta-date">
-                Published {{ post.created_at | truncate(length=10, end="") }}
-            </time>
+        <div class="single-post-meta article-post__meta">
+            <span class="article-post__kicker">DOCKET // OX-POST-{{ post.id }}</span>
+            <span class="glyph-symbol">•</span>
+            <span class="article-post__classification">PUBLIC TECHNICAL SPECIFICATION</span>
             {% if post.category %}
             <span class="meta-separator">•</span>
             <a href="/category/{{ post.category.slug }}" class="post-category-tag">
@@ -29,15 +39,34 @@
             </a>
             {% endif %}
         </div>
+
+        <div class="dual-headline-wrap">
+            <h1 class="single-post-title article-post__title baseline-headline">{{ post.title }}</h1>
+        </div>
+
+        <div class="single-post-byline article-post__byline-bar">
+            <div>
+                <span>BYLINE: <strong>OXIDE CMS TECHNICAL DESK</strong></span>
+            </div>
+            <div>
+                <span>DOCKET: <strong>OX-{{ post.slug }}</strong></span>
+                <span class="glyph-symbol" style="margin: 0 0.4rem;">|</span>
+                <time datetime="{{ post.created_at }}" class="meta-date">
+                    Published {{ post.created_at | truncate(length=10, end="") }}
+                </time>
+                <span class="glyph-symbol" style="margin: 0 0.4rem;">|</span>
+                <span>STATUS: <strong style="color: var(--phosphor);">VERIFIED</strong></span>
+            </div>
+        </div>
     </header>
 
     {% if post.excerpt %}
-    <div class="post-standfirst">
+    <div class="post-standfirst article-post__lead lead-standfirst">
         {{ post.excerpt }}
     </div>
     {% endif %}
 
-    <div class="post-body">
+    <div class="post-body article-post__body">
         {% if content_html %}
             {{ content_html | safe }}
         {% else %}
@@ -45,11 +74,17 @@
         {% endif %}
     </div>
 
-    <footer class="single-post-footer">
+    <div class="article-post__hash">
+        DOCUMENT VERIFICATION HASH: <code>SHA256:ox_{{ post.slug }}_verified</code>
+    </div>
+
+    <footer class="single-post-footer article-nav-strip">
         <div class="post-footer-actions">
-            <a href="/" class="btn-action">← Return to Articles</a>
-            <a href="/api/posts/{{ post.slug }}" target="_blank" rel="noopener" class="api-inspect-link">
-                Inspect Raw JSON ↗
+            <a href="/" class="btn-action btn btn--sm">
+                <span class="glyph-symbol">←</span> <span>Return to Articles</span>
+            </a>
+            <a href="/api/posts/{{ post.slug }}" target="_blank" rel="noopener" class="api-inspect-link btn btn--sm btn--outline">
+                <span>Inspect Raw JSON</span> <span class="glyph-symbol">↗</span>
             </a>
         </div>
     </footer>
