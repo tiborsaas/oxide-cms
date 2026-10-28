@@ -9,13 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{config::AppConfig, error::AppError};
 
-use std::sync::Arc;
-
 #[derive(Clone)]
 pub struct AppState {
     pub pool: sqlx::SqlitePool,
     pub config: AppConfig,
-    pub tera: Arc<tera::Tera>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

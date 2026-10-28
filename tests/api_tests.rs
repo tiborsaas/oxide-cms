@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 static DB_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-async fn spawn_test_app() -> (String, reqwest::Client) {
+async fn spawn_test_app() -> (String, reqwest::Client, sqlx::SqlitePool) {
     let id = DB_COUNTER.fetch_add(1, Ordering::SeqCst);
     let test_db = format!("sqlite:file:test_db_{id}?mode=memory&cache=shared");
     let pool = init_db(&test_db).await.expect("Failed to init test db");
@@ -24,11 +24,9 @@ async fn spawn_test_app() -> (String, reqwest::Client) {
         jwt_secret: "test_jwt_secret_key_12345".to_string(),
     };
 
-    let tera = oxide_cms::markdown::init_tera().expect("Failed to initialize Tera templates");
     let state = AppState {
-        pool,
+        pool: pool.clone(),
         config,
-        tera: std::sync::Arc::new(tera),
     };
     let app = oxide_cms::create_app(state);
 
@@ -43,12 +41,12 @@ async fn spawn_test_app() -> (String, reqwest::Client) {
 
     let client = reqwest::Client::new();
     let base_url = format!("http://{addr}");
-    (base_url, client)
+    (base_url, client, pool)
 }
 
 #[tokio::test]
 async fn test_health_check() {
-    let (base_url, client) = spawn_test_app().await;
+    let (base_url, client, _) = spawn_test_app().await;
 
     let res = client
         .get(format!("{base_url}/api/health"))
@@ -64,7 +62,7 @@ async fn test_health_check() {
 
 #[tokio::test]
 async fn test_authentication_flows() {
-    let (base_url, client) = spawn_test_app().await;
+    let (base_url, client, _) = spawn_test_app().await;
 
     // 1. Failed login with wrong password
     let res = client
@@ -123,7 +121,7 @@ async fn test_authentication_flows() {
 
 #[tokio::test]
 async fn test_categories_and_posts_full_crud() {
-    let (base_url, client) = spawn_test_app().await;
+    let (base_url, client, _) = spawn_test_app().await;
 
     // 1. Unauthenticated category creation fails
     let res = client
@@ -335,32 +333,10 @@ async fn test_categories_and_posts_full_crud() {
 }
 
 #[tokio::test]
-async fn test_web_templates_and_static_assets() {
-    let (base_url, client) = spawn_test_app().await;
+async fn test_data_loading_interfaces() {
+    let (base_url, client, pool) = spawn_test_app().await;
 
-    // 1. Verify static CSS stylesheet is served
-    let css_res = client
-        .get(format!("{base_url}/static/css/style.css"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(css_res.status(), StatusCode::OK);
-    let css_content = css_res.text().await.unwrap();
-    assert!(css_content.contains("Oxide CMS - Minimalist Blog Stylesheet"));
-
-    // 2. Verify homepage renders HTML
-    let home_res = client
-        .get(format!("{base_url}/"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(home_res.status(), StatusCode::OK);
-    let home_html = home_res.text().await.unwrap();
-    assert!(home_html.contains("<!DOCTYPE html>"));
-    assert!(home_html.contains("brand-name"));
-    assert!(home_html.contains("Engineering & Design Notes"));
-
-    // 3. Login and publish a post with a category
+    // Login and publish category and posts
     let auth_res: Value = client
         .post(format!("{base_url}/api/auth/login"))
         .json(&json!({
@@ -396,8 +372,8 @@ async fn test_web_templates_and_static_assets() {
         .json(&json!({
             "title": "Clean Web Architecture in Rust",
             "slug": "clean-web-architecture-in-rust",
-            "content": "Using Axum, SQLite, and Tera provides high maintainability and speed.",
-            "excerpt": "Architectural guidelines for unified APIs and server-side templates.",
+            "content": "Using Axum and SQLite provides high maintainability and speed.",
+            "excerpt": "Architectural guidelines for unified APIs.",
             "published": true,
             "category_id": cat_id
         }))
@@ -405,55 +381,58 @@ async fn test_web_templates_and_static_assets() {
         .await
         .unwrap();
 
-    // 4. Verify post appears on rendered homepage
-    let home_updated = client
-        .get(format!("{base_url}/"))
+    client
+        .post(format!("{base_url}/api/posts"))
+        .bearer_auth(token)
+        .json(&json!({
+            "title": "Second Article",
+            "slug": "second-article",
+            "content": "Another article content.",
+            "excerpt": "Second excerpt.",
+            "published": true,
+            "category_id": cat_id
+        }))
         .send()
+        .await
+        .unwrap();
+
+    // 1. Test list_articles with pagination
+    let articles = oxide_cms::list_articles(&pool, Some(10), Some(0)).await.unwrap();
+    assert_eq!(articles.len(), 2);
+
+    let paginated = oxide_cms::list_articles(&pool, Some(1), Some(0)).await.unwrap();
+    assert_eq!(paginated.len(), 1);
+
+    // 2. Test get_article_by_slug
+    let post = oxide_cms::get_article_by_slug(&pool, "clean-web-architecture-in-rust")
         .await
         .unwrap()
-        .text()
-        .await
-        .unwrap();
-    assert!(home_updated.contains("Clean Web Architecture in Rust"));
-    assert!(home_updated.contains("Rust Architecture"));
+        .expect("Post should exist");
+    assert_eq!(post.title, "Clean Web Architecture in Rust");
+    assert_eq!(
+        post.category.as_ref().map(|c| c.slug.as_str()),
+        Some("rust-architecture")
+    );
 
-    // 5. Verify single post page renders with content and category
-    let post_res = client
-        .get(format!("{base_url}/posts/clean-web-architecture-in-rust"))
-        .send()
+    // 3. Test list_articles_by_category
+    let cat_articles = oxide_cms::list_articles_by_category(&pool, "rust-architecture", None, None)
         .await
         .unwrap();
-    assert_eq!(post_res.status(), StatusCode::OK);
-    let post_html = post_res.text().await.unwrap();
-    assert!(post_html.contains("Clean Web Architecture in Rust"));
-    assert!(post_html.contains("Using Axum, SQLite, and Tera provides high maintainability and speed."));
-    assert!(post_html.contains("Rust Architecture"));
+    assert_eq!(cat_articles.len(), 2);
 
-    // 6. Verify category filter page renders filtered posts
-    let cat_filter_res = client
-        .get(format!("{base_url}/category/rust-architecture"))
-        .send()
+    // 4. Test list_categories & get_category_by_slug
+    let cats = oxide_cms::list_categories(&pool).await.unwrap();
+    assert_eq!(cats.len(), 1);
+    let cat = oxide_cms::get_category_by_slug(&pool, "rust-architecture")
         .await
-        .unwrap();
-    assert_eq!(cat_filter_res.status(), StatusCode::OK);
-    let cat_html = cat_filter_res.text().await.unwrap();
-    assert!(cat_html.contains("Clean Web Architecture in Rust"));
-
-    // 7. Verify 404 page renders for nonexistent post
-    let not_found_res = client
-        .get(format!("{base_url}/posts/non-existent-article"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(not_found_res.status(), StatusCode::NOT_FOUND);
-    let not_found_html = not_found_res.text().await.unwrap();
-    assert!(not_found_html.contains("404"));
-    assert!(not_found_html.contains("Article or Page Not Found"));
+        .unwrap()
+        .expect("Category should exist");
+    assert_eq!(cat.name, "Rust Architecture");
 }
 
 #[tokio::test]
 async fn test_article_markdown_to_html_rendering() {
-    let (base_url, client) = spawn_test_app().await;
+    let (base_url, client, _) = spawn_test_app().await;
 
     // 1. Log in to get admin token
     let auth_res: Value = client
@@ -515,26 +494,20 @@ fn compute_answer() -> i32 {
     let post_json: Value = api_res.json().await.unwrap();
     assert_eq!(post_json["content"].as_str().unwrap(), md_content);
 
-    // 4. Verify that displaying the article converts markdown to HTML
-    let web_res = client
-        .get(format!("{base_url}/posts/markdown-showcase"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(web_res.status(), StatusCode::OK);
-    let web_html = web_res.text().await.unwrap();
+    // 4. Verify that converting raw markdown with oxide_cms::markdown_to_html yields valid HTML
+    let rendered_html = oxide_cms::markdown_to_html(post_json["content"].as_str().unwrap());
 
     // Verify converted HTML tags
-    assert!(web_html.contains("<h2>Introduction to Rust Markdown</h2>"));
-    assert!(web_html.contains("<strong>bold text</strong>"));
-    assert!(web_html.contains("<em>italic text</em>"));
-    assert!(web_html.contains(r#"<a href="https://github.com/oxide">Oxide</a>"#));
-    assert!(web_html.contains("<h3>Features</h3>"));
-    assert!(web_html.contains("<ul>"));
-    assert!(web_html.contains("<li>Native speed</li>"));
-    assert!(web_html.contains("<li>Type safety</li>"));
-    assert!(web_html.contains("<li>CommonMark compliant</li>"));
-    assert!(web_html.contains(r#"<code class="language-rust">fn compute_answer() -&gt; i32 {"#));
-    assert!(web_html.contains("<blockquote>"));
-    assert!(web_html.contains("<p>Markdown quotes are supported.</p>"));
+    assert!(rendered_html.contains("<h2>Introduction to Rust Markdown</h2>"));
+    assert!(rendered_html.contains("<strong>bold text</strong>"));
+    assert!(rendered_html.contains("<em>italic text</em>"));
+    assert!(rendered_html.contains(r#"<a href="https://github.com/oxide">Oxide</a>"#));
+    assert!(rendered_html.contains("<h3>Features</h3>"));
+    assert!(rendered_html.contains("<ul>"));
+    assert!(rendered_html.contains("<li>Native speed</li>"));
+    assert!(rendered_html.contains("<li>Type safety</li>"));
+    assert!(rendered_html.contains("<li>CommonMark compliant</li>"));
+    assert!(rendered_html.contains(r#"<code class="language-rust">fn compute_answer() -&gt; i32 {"#));
+    assert!(rendered_html.contains("<blockquote>"));
+    assert!(rendered_html.contains("<p>Markdown quotes are supported.</p>"));
 }

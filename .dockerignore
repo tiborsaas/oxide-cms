@@ -1,7 +1,0 @@
-target/
-.git/
-.env
-*.db
-*.db-shm
-*.db-wal
-# data/
