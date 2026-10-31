@@ -72,6 +72,34 @@ pub async fn migrate(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    // Create tags table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            slug TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    // Create post_tags junction table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS post_tags (
+            post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+            tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY(post_id, tag_id)
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
     // Create indexes for efficient querying
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_posts_slug ON posts(slug);")
         .execute(pool)
@@ -83,6 +111,15 @@ pub async fn migrate(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_categories_slug ON categories(slug);")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_tags_slug ON tags(slug);")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_post_tags_post_id ON post_tags(post_id);")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_post_tags_tag_id ON post_tags(tag_id);")
         .execute(pool)
         .await?;
 
