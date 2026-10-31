@@ -2,6 +2,14 @@
 name = "oxide-cms"
 version = "0.0.1"
 edition = "2024"
+description = "An embeddable, headless Content Management System library for Rust applications built on Axum and SQLite."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tiborsaas/oxide-cms"
+homepage = "https://github.com/tiborsaas/oxide-cms"
+documentation = "https://docs.rs/oxide-cms"
+readme = "README.md"
+keywords = ["cms", "headless", "axum", "sqlite", "markdown"]
+categories = ["web-programming::http-server", "database"]
 
 [dependencies]
 axum = "0.8"
