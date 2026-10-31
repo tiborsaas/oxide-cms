@@ -6,6 +6,7 @@ use oxide_cms::{
     models::{Category, PostDetail, Tag},
 };
 use reqwest::StatusCode;
+use axum::response::IntoResponse;
 use serde_json::{json, Value};
 
 static DB_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -1024,4 +1025,264 @@ async fn test_posts_tags_assignment_and_filtering() {
     assert_eq!(res.status(), StatusCode::OK);
     let tutorials_async: Vec<Value> = res.json().await.unwrap();
     assert_eq!(tutorials_async.len(), 0);
+}
+
+
+#[tokio::test]
+async fn test_full_coverage_additional_cases() {
+    let (base_url, client, _pool) = spawn_test_app().await;
+
+    let _test_cfg = oxide_cms::AppConfig::from_env();
+    // Config from env with custom vars set
+    unsafe {
+        std::env::set_var("DATABASE_URL", "sqlite:custom.db");
+        std::env::set_var("HOST", "0.0.0.0");
+        std::env::set_var("PORT", "8080");
+        std::env::set_var("ADMIN_USERNAME", "custom_admin");
+        std::env::set_var("ADMIN_PASSWORD", "custom_pass");
+        std::env::set_var("JWT_SECRET", "custom_secret");
+    }
+    let custom_cfg = oxide_cms::AppConfig::from_env();
+    assert_eq!(custom_cfg.host, "0.0.0.0");
+    assert_eq!(custom_cfg.port, 8080);
+    assert_eq!(custom_cfg.admin_username, "custom_admin");
+    assert_eq!(custom_cfg.admin_password, "custom_pass");
+    assert_eq!(custom_cfg.jwt_secret, "custom_secret");
+    assert_eq!(custom_cfg.database_url, "sqlite:custom.db");
+    unsafe {
+        std::env::remove_var("DATABASE_URL");
+        std::env::remove_var("HOST");
+        std::env::remove_var("PORT");
+        std::env::remove_var("ADMIN_USERNAME");
+        std::env::remove_var("ADMIN_PASSWORD");
+        std::env::remove_var("JWT_SECRET");
+    }
+
+    // 1. Root API endpoint
+    let res = client.get(format!("{base_url}/api")).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let root_val: Value = res.json().await.unwrap();
+    assert_eq!(root_val["name"], "oxide-cms");
+
+    // 2. api_router() invocation
+    let _ = oxide_cms::api_router();
+
+    // 3. Error display & responses
+    let errors = vec![
+        oxide_cms::AppError::NotFound("item".into()),
+        oxide_cms::AppError::BadRequest("bad".into()),
+        oxide_cms::AppError::Unauthorized("unauth".into()),
+        oxide_cms::AppError::Conflict("conflict".into()),
+        oxide_cms::AppError::Internal("server error".into()),
+        oxide_cms::AppError::Database(sqlx::Error::RowNotFound),
+    ];
+    for e in errors {
+        let _ = format!("{e}");
+        use axum::response::IntoResponse;
+        let _ = e.into_response();
+    }
+    use std::error::Error;
+    let _ = oxide_cms::AppError::Internal("test".into()).source();
+
+    // From sqlx::Error::RowNotFound
+    let from_row_err: oxide_cms::AppError = sqlx::Error::RowNotFound.into();
+    let _ = from_row_err.into_response();
+
+    // From sqlx::Error::PoolTimedOut and Configuration
+    let from_pool_err: oxide_cms::AppError = sqlx::Error::PoolTimedOut.into();
+    let _ = from_pool_err.into_response();
+
+    // Trigger foreign key violation directly via pool
+    // Enable foreign keys and insert post with invalid category_id
+    let fk_err = sqlx::query("INSERT INTO posts (title, slug, content, category_id) VALUES ('fk', 'fk', 'fk', 99999)")
+        .execute(&_pool)
+        .await
+        .unwrap_err();
+    let app_fk_err: oxide_cms::AppError = fk_err.into();
+    let _ = app_fk_err.into_response();
+    // Database generic error into AppError
+    let generic_sql_err = sqlx::query("SELECT non_existent_column_xyz FROM posts")
+        .execute(&_pool)
+        .await
+        .unwrap_err();
+    let app_db_err: oxide_cms::AppError = generic_sql_err.into();
+    let _ = app_db_err.into_response();
+
+    // 4. slugify edge cases
+    assert_eq!(oxide_cms::models::slugify(""), "item");
+    assert_eq!(oxide_cms::models::slugify("---"), "item");
+    assert_eq!(oxide_cms::models::slugify("  hello - world  "), "hello-world");
+    assert_eq!(oxide_cms::models::slugify("hello world -"), "hello-world");
+
+    // 5. Auth edge cases
+    let login_res = client
+        .post(format!("{base_url}/api/auth/login"))
+        .json(&json!({"username": "admin", "password": "supersecretpass"}))
+        .send()
+        .await
+        .unwrap();
+    let token = login_res.json::<Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+
+    // Invalid bearer
+    let res = client.get(format!("{base_url}/api/auth/me")).bearer_auth("invalid.token.here").send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // Wrong sub token
+    let wrong_user_token = oxide_cms::auth::create_jwt_token("wrong_user", "test_jwt_secret_key_12345").unwrap();
+    let res = client.get(format!("{base_url}/api/auth/me")).bearer_auth(&wrong_user_token).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // Malformed basic
+    let res = client.get(format!("{base_url}/api/auth/me")).header("Authorization", "Basic not_valid_base64!!!").send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // Non-utf8 basic
+    let res = client.get(format!("{base_url}/api/auth/me")).header("Authorization", "Basic /w==").send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // Wrong basic user/pass lengths
+    let res = client.get(format!("{base_url}/api/auth/me")).basic_auth("short", Some("pass")).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // Basic auth same length but wrong username/pass
+    let res = client.get(format!("{base_url}/api/auth/me")).basic_auth("aaaaa", Some("supersecretpass")).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // Basic auth missing colon
+    let res = client.get(format!("{base_url}/api/auth/me")).header("Authorization", "Basic YWRtaW4=").send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // Unsupported header
+    let res = client.get(format!("{base_url}/api/auth/me")).header("Authorization", "Digest something").send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // 6. Categories route & services coverage
+    // GET /api/categories
+    let res = client.get(format!("{base_url}/api/categories")).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Create category with empty name
+    let res = client.post(format!("{base_url}/api/categories")).bearer_auth(&token).json(&json!({"name": "   "})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // Create valid category
+    let res = client.post(format!("{base_url}/api/categories")).bearer_auth(&token).json(&json!({"name": "Design", "slug": "design", "description": "Design articles"})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let cat_id = res.json::<Value>().await.unwrap()["id"].as_i64().unwrap();
+
+    // GET category by numeric id
+    let res = client.get(format!("{base_url}/api/categories/{cat_id}")).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // GET category not found
+    let res = client.get(format!("{base_url}/api/categories/nonexistent-cat")).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    // PUT category
+    let res = client.put(format!("{base_url}/api/categories/{cat_id}")).bearer_auth(&token).json(&json!({"name": "Design UI", "description": "UI & Design"})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // PUT category with empty name
+    let res = client.put(format!("{base_url}/api/categories/{cat_id}")).bearer_auth(&token).json(&json!({"name": "  "})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // PUT category not found
+    let res = client.put(format!("{base_url}/api/categories/99999")).bearer_auth(&token).json(&json!({"name": "Test"})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    // DELETE category not found
+    let res = client.delete(format!("{base_url}/api/categories/99999")).bearer_auth(&token).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    // 7. Tags route & services coverage
+    // Create tag with empty name
+    let res = client.post(format!("{base_url}/api/tags")).bearer_auth(&token).json(&json!({"name": "  "})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // Create valid tag
+    let res = client.post(format!("{base_url}/api/tags")).bearer_auth(&token).json(&json!({"name": "RustLang"})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let tag_id = res.json::<Value>().await.unwrap()["id"].as_i64().unwrap();
+
+    // Update tag with empty name
+    let res = client.put(format!("{base_url}/api/tags/{tag_id}")).bearer_auth(&token).json(&json!({"name": "  "})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // Update tag not found
+    let res = client.put(format!("{base_url}/api/tags/99999")).bearer_auth(&token).json(&json!({"name": "Test"})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    // Delete tag not found
+    let res = client.delete(format!("{base_url}/api/tags/99999")).bearer_auth(&token).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    // 8. Posts route & services coverage
+    // Create post with empty title
+    let res = client.post(format!("{base_url}/api/posts")).bearer_auth(&token).json(&json!({"title": "  ", "content": "text"})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // Create post with non-existent category
+    let res = client.post(format!("{base_url}/api/posts")).bearer_auth(&token).json(&json!({"title": "Post", "content": "text", "category_id": 99999})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // Create post with non-existent tag
+    let res = client.post(format!("{base_url}/api/posts")).bearer_auth(&token).json(&json!({"title": "Post", "content": "text", "tag_ids": [99999]})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // Create valid post
+    let res = client.post(format!("{base_url}/api/posts")).bearer_auth(&token).json(&json!({
+        "title": "Coverage Post",
+        "content": "Content",
+        "category_id": cat_id,
+        "tag_ids": [tag_id],
+        "published": false
+    })).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let post_id = res.json::<Value>().await.unwrap()["id"].as_i64().unwrap();
+
+    // Update post with None category and None tags (retaining existing)
+    let res = client.put(format!("{base_url}/api/posts/{post_id}")).bearer_auth(&token).json(&json!({
+        "excerpt": "Updated excerpt"
+    })).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Query posts with category_id and tag_id
+    let res = client.get(format!("{base_url}/api/posts?category_id={cat_id}&tag_id={tag_id}&published=false")).bearer_auth(&token).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let posts_list: Vec<Value> = res.json().await.unwrap();
+    assert_eq!(posts_list.len(), 1);
+
+    // Update post with empty title
+    let res = client.put(format!("{base_url}/api/posts/{post_id}")).bearer_auth(&token).json(&json!({"title": "  "})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // Update post with non-existent category
+    let res = client.put(format!("{base_url}/api/posts/{post_id}")).bearer_auth(&token).json(&json!({"category_id": 99999})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // Update post with non-existent tag
+    let res = client.put(format!("{base_url}/api/posts/{post_id}")).bearer_auth(&token).json(&json!({"tag_ids": [99999]})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // Update post not found
+    let res = client.put(format!("{base_url}/api/posts/99999")).bearer_auth(&token).json(&json!({"title": "Nonexistent"})).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    // Delete post not found
+    let res = client.delete(format!("{base_url}/api/posts/99999")).bearer_auth(&token).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    // 9. DB directory creation
+    let temp_dir = std::env::temp_dir().join(format!("oxide_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let temp_db_path = temp_dir.join("sub").join("test.db");
+    let temp_db_url = format!("sqlite://{}", temp_db_path.to_str().unwrap());
+    let pool_temp = oxide_cms::db::init_db(&temp_db_url).await.unwrap();
+    let _ = pool_temp.close().await;
+    let _ = std::fs::remove_dir_all(temp_dir);
+    // OptionalAdminUser with valid token
+    let res = client.get(format!("{base_url}/api/posts")).bearer_auth(&token).send().await.unwrap();
+    // OptionalAdminUser with invalid token falls back to None (guest)
+    let _res = client.get(format!("{base_url}/api/posts")).bearer_auth("invalid_token_xyz").send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.status(), StatusCode::OK);
 }
