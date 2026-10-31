@@ -25,6 +25,32 @@ pub struct UpdateCategoryDto {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Tag {
+    pub id: i64,
+    pub name: String,
+    pub slug: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTagDto {
+    pub name: String,
+    pub slug: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateTagDto {
+    pub name: Option<String>,
+    pub slug: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TagQuery {
+    pub search: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Post {
     pub id: i64,
     pub title: String,
@@ -35,6 +61,9 @@ pub struct Post {
     pub category_id: Option<i64>,
     pub category_name: Option<String>,
     pub category_slug: Option<String>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub tags: Vec<Tag>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -48,6 +77,8 @@ pub struct PostDetail {
     pub excerpt: Option<String>,
     pub published: bool,
     pub category: Option<Category>,
+    #[serde(default)]
+    pub tags: Vec<Tag>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -61,6 +92,7 @@ pub struct CreatePostDto {
     #[serde(default)]
     pub published: bool,
     pub category_id: Option<i64>,
+    pub tag_ids: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -71,12 +103,15 @@ pub struct UpdatePostDto {
     pub excerpt: Option<String>,
     pub published: Option<bool>,
     pub category_id: Option<i64>,
+    pub tag_ids: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 pub struct PostQuery {
     pub category_id: Option<i64>,
     pub category_slug: Option<String>,
+    pub tag_id: Option<i64>,
+    pub tag_slug: Option<String>,
     pub published: Option<bool>,
     pub search: Option<String>,
     pub limit: Option<i64>,
