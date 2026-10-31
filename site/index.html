@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OXIDE CMS — headless content, embedded in Rust</title>
+  <meta name="description"
+    content="Oxide CMS: an embeddable headless CMS library for Rust. Axum + SQLite, zero config.">
+  <style>
+    :root {
+      --bg: #0b0704;
+      --amber: #ffb000;
+      --amber-dim: #a56d00;
+      --amber-faint: #3a2600;
+      --glow: 0 0 4px rgba(255, 176, 0, .9), 0 0 14px rgba(255, 140, 0, .45);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      background: var(--bg);
+    }
+
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(ellipse at 50% 20%, #1c1103 0%, var(--bg) 70%);
+      color: var(--amber);
+      font: 15px/1.6 "IBM Plex Mono", "SF Mono", Menlo, Consolas, monospace;
+      text-shadow: var(--glow);
+      position: relative;
+    }
+
+    /* CRT scanlines + vignette */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 10;
+      background: repeating-linear-gradient(0deg, rgba(0, 0, 0, .18) 0 1px, transparent 1px 3px);
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 11;
+      background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, .65) 100%);
+      animation: flicker 6s infinite;
+    }
+
+    @keyframes flicker {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: .94
+      }
+
+      52% {
+        opacity: 1
+      }
+
+      90% {
+        opacity: .97
+      }
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 48px 24px 32px;
+    }
+
+    pre {
+      font-family: inherit;
+    }
+
+    a {
+      color: var(--amber);
+      text-decoration: none;
+      border-bottom: 1px dashed var(--amber-dim);
+    }
+
+    a:hover {
+      background: var(--amber);
+      color: var(--bg);
+      text-shadow: none;
+    }
+
+    nav {
+      display: flex;
+      justify-content: space-between;
+      color: var(--amber-dim);
+      font-size: 13px;
+      margin-bottom: 40px;
+    }
+
+    nav a {
+      margin-left: 18px;
+      border: 0;
+    }
+
+    .logo {
+      font-size: clamp(6px, 1.55vw, 13px);
+      line-height: 1.15;
+      white-space: pre;
+      overflow: hidden;
+    }
+
+    .tag {
+      margin: 22px 0 28px;
+      font-size: 17px;
+    }
+
+    .cursor {
+      display: inline-block;
+      width: .6em;
+      height: 1.1em;
+      background: var(--amber);
+      vertical-align: text-bottom;
+      box-shadow: var(--glow);
+      animation: blink 1s steps(1) infinite;
+    }
+
+    @keyframes blink {
+      50% {
+        opacity: 0;
+      }
+    }
+
+    .term {
+      border: 1px solid var(--amber-dim);
+      box-shadow: 0 0 24px rgba(255, 140, 0, .15), inset 0 0 30px rgba(255, 140, 0, .05);
+      background: rgba(20, 12, 2, .7);
+    }
+
+    .term-bar {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 14px;
+      border-bottom: 1px solid var(--amber-dim);
+      color: var(--amber-dim);
+      font-size: 12px;
+      letter-spacing: .1em;
+    }
+
+    .term pre {
+      padding: 22px 26px;
+      font-size: clamp(12px, 1.7vw, 15px);
+      line-height: 1.7;
+      overflow: hidden;
+    }
+
+    .c {
+      color: var(--amber-dim);
+    }
+
+    .k {
+      font-weight: bold;
+    }
+
+    .s {
+      color: #ffd37a;
+    }
+
+    .cta {
+      margin: 22px 0 8px;
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .cta code {
+      border: 1px solid var(--amber-dim);
+      padding: 6px 14px;
+    }
+
+    .cta a {
+      padding: 6px 14px;
+      border: 1px solid var(--amber);
+    }
+
+    h2 {
+      font-size: 15px;
+      font-weight: normal;
+      letter-spacing: .15em;
+      margin: 72px 0 18px;
+      color: var(--amber-dim);
+    }
+
+    h2::before {
+      content: "// ";
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+      gap: 0;
+      border: 1px solid var(--amber-faint);
+    }
+
+    .grid div {
+      padding: 20px;
+      border: 1px solid var(--amber-faint);
+    }
+
+    .grid b {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .grid span {
+      color: var(--amber-dim);
+      font-size: 13px;
+      text-shadow: none;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    td {
+      padding: 5px 10px 5px 0;
+      border-bottom: 1px dotted var(--amber-faint);
+      vertical-align: top;
+    }
+
+    td:first-child {
+      white-space: nowrap;
+      color: var(--amber-dim);
+    }
+
+    footer {
+      margin-top: 80px;
+      padding-top: 18px;
+      border-top: 1px dashed var(--amber-faint);
+      color: var(--amber-dim);
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .mob {
+      display: none;
+    }
+
+    html,
+    body {
+      overflow-x: hidden;
+    }
+
+    main,
+    .term,
+    .grid,
+    table {
+      min-width: 0;
+    }
+
+    @media (max-width: 640px) {
+      main {
+        padding: 28px 16px 24px;
+      }
+
+      nav {
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 28px;
+      }
+
+      nav a {
+        margin: 0 14px 0 0;
+      }
+
+      .desk {
+        display: none;
+      }
+
+      pre.mob {
+        display: block;
+      }
+
+      .logo.mob {
+        font-size: 13px;
+        line-height: 1.1;
+        text-align: center;
+        margin: 0 auto;
+        width: max-content;
+      }
+
+      .tag {
+        font-size: 15px;
+      }
+
+      .term pre {
+        padding: 16px;
+        font-size: 11px;
+        overflow: auto;
+      }
+
+      .term-bar span:last-child {
+        display: none;
+      }
+
+      .cta {
+        flex-direction: column;
+      }
+
+      .diagram {
+        text-align: center;
+        width: max-content;
+        margin: 0 auto;
+      }
+
+      table,
+      tbody,
+      tr,
+      td {
+        display: block;
+        width: 100%;
+      }
+
+      tr {
+        padding: 10px 0;
+        border-bottom: 1px dotted var(--amber-faint);
+      }
+
+      td {
+        border: 0;
+        padding: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+
+      td:first-child {
+        color: var(--amber);
+        font-weight: bold;
+      }
+
+      td:last-child {
+        color: var(--amber-dim);
+        padding-left: 2ch;
+      }
+
+      td:last-child::before {
+        content: "> ";
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+
+      .cursor,
+      body::after {
+        animation: none;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+
+    <nav>
+      <span>OXIDE/CMS v0.0.1 &nbsp;::&nbsp; ALPHA REALEASE</span>
+      <span><a href="#why">why</a><a href="#api">api</a><a href="#model">model</a><a
+          href="https://github.com/">source</a></span>
+    </nav>
+
+    <pre class="logo desk" aria-label="OXIDE CMS">
+  ██████╗ ██╗  ██╗██╗██████╗ ███████╗     ██████╗███╗   ███╗███████╗
+ ██╔═══██╗╚██╗██╔╝██║██╔══██╗██╔════╝    ██╔════╝████╗ ████║██╔════╝
+ ██║   ██║ ╚███╔╝ ██║██║  ██║█████╗      ██║     ██╔████╔██║███████╗
+ ██║   ██║ ██╔██╗ ██║██║  ██║██╔══╝      ██║     ██║╚██╔╝██║╚════██║
+ ╚██████╔╝██╔╝ ██╗██║██████╔╝███████╗    ╚██████╗██║ ╚═╝ ██║███████║
+  ╚═════╝ ╚═╝  ╚═╝╚═╝╚═════╝ ╚══════╝     ╚═════╝╚═╝     ╚═╝╚══════╝
+</pre>
+
+    <pre class="logo mob" aria-label="OXIDE CMS">
+ ██████╗ ██╗  ██╗██╗
+██╔═══██╗╚██╗██╔╝██║
+██║   ██║ ╚███╔╝ ██║
+██║   ██║ ██╔██╗ ██║
+╚██████╔╝██╔╝ ██╗██║
+ ╚═════╝ ╚═╝  ╚═╝╚═╝
+
+██████╗ ███████╗
+██╔══██╗██╔════╝
+██║  ██║█████╗
+██║  ██║██╔══╝
+██████╔╝███████╗
+╚═════╝ ╚══════╝
+
+ ██████╗███╗   ███╗███████╗
+██╔════╝████╗ ████║██╔════╝
+██║     ██╔████╔██║███████╗
+██║     ██║╚██╔╝██║╚════██║
+╚██████╗██║ ╚═╝ ██║███████║
+ ╚═════╝╚═╝     ╚═╝╚══════╝
+</pre>
+
+    <p class="tag">Headless content, embedded in your Rust binary.<span class="cursor"></span><br>
+      <span style="color:var(--amber-dim);font-size:14px">Axum &middot; SQLite &middot; JWT &middot; CommonMark. No
+        daemon. No config. No templates.</span>
+    </p>
+
+    <section class="term" aria-label="Quickstart">
+      <div class="term-bar"><span>main.rs</span><span>[ 12 LINES / ONE ROUTER ]</span></div>
+      <pre><span class="c">// Cargo.toml:  oxide-cms, axum, tokio</span>
+<span class="k">use</span> oxide_cms::{api_router, init_db, list_articles, AppConfig, AppState};
+
+<span class="k">#[tokio::main]</span>
+<span class="k">async fn</span> main() {
+    <span class="k">let</span> config = AppConfig::from_env();
+    <span class="k">let</span> pool   = init_db(&amp;config.database_url).<span class="k">await</span>.unwrap(); <span class="c">// migrates itself</span>
+
+    <span class="c">// read straight from the pool: zero HTTP, zero serialization overhead</span>
+    <span class="k">let</span> posts = list_articles(&amp;pool, <span class="s">Some(10)</span>, <span class="s">None</span>).<span class="k">await</span>.unwrap();
+
+    <span class="c">// full REST API (posts, categories, tags, auth) in one line</span>
+    <span class="k">let</span> app = axum::Router::new()
+        .nest(<span class="s">"/api"</span>, api_router())
+        .with_state(AppState { pool, config });
+
+    axum::serve(tokio::net::TcpListener::bind(<span class="s">"0.0.0.0:3000"</span>).<span class="k">await</span>.unwrap(), app).<span class="k">await</span>.unwrap();
+}</pre>
+    </section>
+
+    <div class="cta">
+      <code>$ cargo add oxide-cms</code>
+      <a href="#api">READ THE API &rarr;</a>
+    </div>
+
+    <h2 id="why">WHY</h2>
+    <div class="grid">
+      <div><b>[01] EMBEDDED</b><span>A library, not a service. Call content functions directly from your handlers; no
+          network hop between app and CMS.</span></div>
+      <div><b>[02] FAST BY DEFAULT</b><span>SQLite in WAL mode, indexed slugs and relations, batched tag loading. No N+1
+          queries.</span></div>
+      <div><b>[03] HEADLESS</b><span>You own the frontend. Content is JSON and Markdown; render with whatever you
+          like.</span></div>
+      <div><b>[04] ZERO CONFIG</b><span>Point at a file. Tables and indexes are created on first connect.</span></div>
+      <div><b>[05] SINGLE FOCUS</b><span>Oxide focuses on doing one thing right only: serving content fromt
+          SQLite.</span></div>
+      <div><b>[06] AGENTIC BY NATURE</b><span>Provides an MCP endpoint too so that content editing can be
+          seamless.</span></div>
+    </div>
+
+    <h2 id="model">DATA MODEL</h2>
+    <pre class="desk">
+ ┌────────────┐ 1     n ┌────────────┐ n       n ┌────────────┐
+ │ categories │─────────│   posts    │────────-─-│    tags    │
+ └────────────┘         └────────────┘ post_tags └────────────┘
+</pre>
+    <pre class="mob diagram">
+┌────────────┐
+│ categories │
+└─────┬──────┘
+1:n
+┌─────┴──────┐
+│   posts    │
+└─────┬──────┘
+n:n
+(post_tags)
+┌─────┴──────┐
+│    tags    │
+└────────────┘
+</pre>
+
+    <h2 id="api">API SURFACE</h2>
+    <table>
+      <tr>
+        <td>list_articles(&amp;pool, limit, offset)</td>
+        <td>published posts, paginated</td>
+      </tr>
+      <tr>
+        <td>get_article_by_slug(&amp;pool, slug)</td>
+        <td>single post with category + tags</td>
+      </tr>
+      <tr>
+        <td>list_articles_by_category(&amp;pool, slug, ..)</td>
+        <td>filter by category</td>
+      </tr>
+      <tr>
+        <td>list_articles_by_tag(&amp;pool, slug, ..)</td>
+        <td>filter by tag</td>
+      </tr>
+      <tr>
+        <td>list_categories / list_tags</td>
+        <td>taxonomies</td>
+      </tr>
+      <tr>
+        <td>markdown_to_html(&amp;content)</td>
+        <td>CommonMark, tables, task lists</td>
+      </tr>
+      <tr>
+        <td>api_router()</td>
+        <td>mountable REST: /posts /categories /tags /auth</td>
+      </tr>
+    </table>
+
+    <footer>
+      <span>OXIDE CMS &copy; 2026 &mdash; built in Rust</span>
+      <span>&gt; BUDAPEST_</span>
+    </footer>
+
+  </main>
+</body>
+
+</html>
