@@ -13,8 +13,8 @@ pub use db::init_db;
 pub use error::AppError;
 pub use markdown::markdown_to_html;
 pub use models::{
-    Category, CreateCategoryDto, CreatePostDto, Post, PostDetail, PostQuery, UpdateCategoryDto,
-    UpdatePostDto,
+    Category, CreateCategoryDto, CreatePostDto, CreateTagDto, Post, PostDetail, PostQuery, Tag,
+    TagQuery, UpdateCategoryDto, UpdatePostDto, UpdateTagDto,
 };
 pub use routes::create_api_router;
 
@@ -52,7 +52,8 @@ pub fn create_app(state: AppState) -> Router {
                         "auth_login": "/api/auth/login",
                         "auth_me": "/api/auth/me",
                         "categories": "/api/categories",
-                        "posts": "/api/posts"
+                        "posts": "/api/posts",
+                        "tags": "/api/tags"
                     }
                 }))
             }),
@@ -104,6 +105,22 @@ pub async fn list_articles_by_category(
     services::posts::list_posts(pool, &query, false).await
 }
 
+/// Data Loading Interface: List published articles belonging to a specific tag slug, with limit and offset.
+pub async fn list_articles_by_tag(
+    pool: &SqlitePool,
+    tag_slug: &str,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<Post>, AppError> {
+    let query = PostQuery {
+        tag_slug: Some(tag_slug.to_string()),
+        limit,
+        offset,
+        ..Default::default()
+    };
+    services::posts::list_posts(pool, &query, false).await
+}
+
 /// Data Loading Interface: List all available categories.
 pub async fn list_categories(pool: &SqlitePool) -> Result<Vec<Category>, AppError> {
     services::categories::list_categories(pool).await
@@ -115,4 +132,17 @@ pub async fn get_category_by_slug(
     slug_or_id: &str,
 ) -> Result<Option<Category>, AppError> {
     services::categories::get_category_by_id_or_slug(pool, slug_or_id).await
+}
+
+/// Data Loading Interface: List all available tags.
+pub async fn list_tags(pool: &SqlitePool) -> Result<Vec<Tag>, AppError> {
+    services::tags::list_tags(pool, None).await
+}
+
+/// Data Loading Interface: Retrieve a single tag by its slug or numeric ID.
+pub async fn get_tag_by_slug(
+    pool: &SqlitePool,
+    slug_or_id: &str,
+) -> Result<Option<Tag>, AppError> {
+    services::tags::get_tag_by_id_or_slug(pool, slug_or_id).await
 }
