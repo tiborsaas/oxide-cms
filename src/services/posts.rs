@@ -2,8 +2,25 @@ use sqlx::SqlitePool;
 
 use crate::{
     error::AppError,
-    models::{slugify, Category, CreatePostDto, Post, PostDetail, PostQuery, UpdatePostDto},
+    models::{slugify, Category, CreatePostDto, Post, PostDetail, PostQuery, Tag, UpdatePostDto},
 };
+
+pub async fn get_tags_for_post(pool: &SqlitePool, post_id: i64) -> Result<Vec<Tag>, AppError> {
+    let tags = sqlx::query_as::<_, Tag>(
+        r#"
+        SELECT t.id, t.name, t.slug, t.created_at, t.updated_at
+        FROM tags t
+        INNER JOIN post_tags pt ON pt.tag_id = t.id
+        WHERE pt.post_id = ?
+        ORDER BY t.name ASC
+        "#,
+    )
+    .bind(post_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(tags)
+}
 
 pub async fn list_posts(
     pool: &SqlitePool,
@@ -42,6 +59,18 @@ pub async fn list_posts(
         builder.push_bind(slug);
     }
 
+    if let Some(tag_id) = query.tag_id {
+        builder.push(" AND EXISTS (SELECT 1 FROM post_tags pt WHERE pt.post_id = p.id AND pt.tag_id = ");
+        builder.push_bind(tag_id);
+        builder.push(")");
+    }
+
+    if let Some(tag_slug) = &query.tag_slug {
+        builder.push(" AND EXISTS (SELECT 1 FROM post_tags pt JOIN tags t ON pt.tag_id = t.id WHERE pt.post_id = p.id AND t.slug = ");
+        builder.push_bind(tag_slug);
+        builder.push(")");
+    }
+
     if let Some(search) = &query.search {
         let pattern = format!("%{search}%");
         builder.push(" AND (p.title LIKE ");
@@ -57,7 +86,52 @@ pub async fn list_posts(
     builder.push_bind(offset);
 
     let query_stmt = builder.build_query_as::<Post>();
-    let posts = query_stmt.fetch_all(pool).await?;
+    let mut posts = query_stmt.fetch_all(pool).await?;
+
+    if !posts.is_empty() {
+        let post_ids: Vec<i64> = posts.iter().map(|p| p.id).collect();
+        let mut tag_builder = sqlx::QueryBuilder::new(
+            r#"
+            SELECT pt.post_id, t.id, t.name, t.slug, t.created_at, t.updated_at
+            FROM tags t
+            INNER JOIN post_tags pt ON pt.tag_id = t.id
+            WHERE pt.post_id IN (
+            "#,
+        );
+        let mut separated = tag_builder.separated(", ");
+        for id in &post_ids {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(") ORDER BY t.name ASC");
+
+        #[derive(sqlx::FromRow)]
+        struct PostTagRow {
+            post_id: i64,
+            id: i64,
+            name: String,
+            slug: String,
+            created_at: String,
+            updated_at: String,
+        }
+
+        let tag_rows = tag_builder.build_query_as::<PostTagRow>().fetch_all(pool).await?;
+        let mut tags_by_post: std::collections::HashMap<i64, Vec<Tag>> = std::collections::HashMap::new();
+        for row in tag_rows {
+            tags_by_post.entry(row.post_id).or_default().push(Tag {
+                id: row.id,
+                name: row.name,
+                slug: row.slug,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+            });
+        }
+
+        for post in &mut posts {
+            if let Some(tags) = tags_by_post.remove(&post.id) {
+                post.tags = tags;
+            }
+        }
+    }
 
     Ok(posts)
 }
@@ -119,6 +193,8 @@ pub async fn get_post_by_id_or_slug(
         None
     };
 
+    let tags = get_tags_for_post(pool, post.id).await?;
+
     Ok(Some(PostDetail {
         id: post.id,
         title: post.title,
@@ -127,6 +203,7 @@ pub async fn get_post_by_id_or_slug(
         excerpt: post.excerpt,
         published: post.published,
         category,
+        tags,
         created_at: post.created_at,
         updated_at: post.updated_at,
     }))
@@ -158,6 +235,20 @@ pub async fn create_post(
         }
     }
 
+    if let Some(ref tag_ids) = payload.tag_ids {
+        for &tid in tag_ids {
+            let exists = sqlx::query("SELECT 1 FROM tags WHERE id = ?")
+                .bind(tid)
+                .fetch_optional(pool)
+                .await?;
+            if exists.is_none() {
+                return Err(AppError::BadRequest(format!(
+                    "Tag with id {tid} does not exist"
+                )));
+            }
+        }
+    }
+
     let inserted = sqlx::query(
         r#"
         INSERT INTO posts (title, slug, content, excerpt, published, category_id)
@@ -176,7 +267,17 @@ pub async fn create_post(
 
     let id: i64 = sqlx::Row::get(&inserted, "id");
 
-    let post = sqlx::query_as::<_, Post>(
+    if let Some(tag_ids) = payload.tag_ids {
+        for tid in tag_ids {
+            sqlx::query("INSERT OR IGNORE INTO post_tags (post_id, tag_id) VALUES (?, ?)")
+                .bind(id)
+                .bind(tid)
+                .execute(pool)
+                .await?;
+        }
+    }
+
+    let mut post = sqlx::query_as::<_, Post>(
         r#"
         SELECT 
             p.id, p.title, p.slug, p.content, p.excerpt, p.published, p.category_id,
@@ -190,6 +291,8 @@ pub async fn create_post(
     .bind(id)
     .fetch_one(pool)
     .await?;
+
+    post.tags = get_tags_for_post(pool, id).await?;
 
     Ok(post)
 }
@@ -238,6 +341,20 @@ pub async fn update_post(
         }
     }
 
+    if let Some(ref tag_ids) = payload.tag_ids {
+        for &tid in tag_ids {
+            let exists = sqlx::query("SELECT 1 FROM tags WHERE id = ?")
+                .bind(tid)
+                .fetch_optional(pool)
+                .await?;
+            if exists.is_none() {
+                return Err(AppError::BadRequest(format!(
+                    "Tag with id {tid} does not exist"
+                )));
+            }
+        }
+    }
+
     sqlx::query(
         r#"
         UPDATE posts
@@ -255,7 +372,22 @@ pub async fn update_post(
     .execute(pool)
     .await?;
 
-    let updated = sqlx::query_as::<_, Post>(
+    if let Some(tag_ids) = payload.tag_ids {
+        sqlx::query("DELETE FROM post_tags WHERE post_id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+
+        for tid in tag_ids {
+            sqlx::query("INSERT OR IGNORE INTO post_tags (post_id, tag_id) VALUES (?, ?)")
+                .bind(id)
+                .bind(tid)
+                .execute(pool)
+                .await?;
+        }
+    }
+
+    let mut updated = sqlx::query_as::<_, Post>(
         r#"
         SELECT 
             p.id, p.title, p.slug, p.content, p.excerpt, p.published, p.category_id,
@@ -269,6 +401,8 @@ pub async fn update_post(
     .bind(id)
     .fetch_one(pool)
     .await?;
+
+    updated.tags = get_tags_for_post(pool, id).await?;
 
     Ok(updated)
 }
