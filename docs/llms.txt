@@ -1,0 +1,84 @@
+# Oxide CMS
+
+> An embeddable, headless Content Management System library for Rust applications built on Axum and SQLite.
+
+`oxide-cms` provides a complete headless content layer: structured posts, categories, tags, JWT-authenticated management REST APIs, automated SQLite database schema and migrations, CommonMark markdown parsing, and high-level async query interfaces.
+
+- crates.io: https://crates.io/crates/oxide-cms
+- Repository: https://github.com/tiborsaas/oxide-cms
+- Documentation: https://docs.rs/oxide-cms
+
+## Key Capabilities
+
+- **Embedded Engine**: Call Rust content loading functions directly in handlers; zero network latency or external CMS daemon overhead.
+- **Zero-Config SQLite**: Automated table migrations (`posts`, `categories`, `tags`, `post_tags`) and indexing on startup.
+- **REST API Router**: Mountable Axum router (`api_router()`) for CRUD management and public querying.
+- **Taxonomies**: 1:n category relationships and n:n post tags with batched loading to avoid N+1 queries.
+- **Markdown**: Fast CommonMark parsing with tables, task lists, footnotes, and strikethrough via `pulldown-cmark`.
+
+## Installation
+
+Add `oxide-cms` to `Cargo.toml`:
+
+```toml
+[dependencies]
+oxide-cms = "0.0.1"
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+```
+
+Or via CLI:
+
+```sh
+cargo add oxide-cms
+```
+
+## Quickstart
+
+```rust
+use axum::Router;
+use oxide_cms::{api_router, init_db, list_articles, AppConfig, AppState};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = AppConfig::from_env();
+    let pool = init_db(&config.database_url).await?;
+
+    // Direct in-process query: zero HTTP overhead
+    let articles = list_articles(&pool, Some(10), None).await?;
+
+    // Mount full REST API under /api
+    let app = Router::new()
+        .nest("/api", api_router())
+        .with_state(AppState { pool, config });
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+```
+
+## Core Rust APIs
+
+### Data Loading Interfaces
+
+- `list_articles(&pool, limit, offset)`: List published articles paginated.
+- `get_article_by_slug(&pool, slug_or_id)`: Retrieve a single article with category and tags.
+- `list_articles_by_category(&pool, category_slug, limit, offset)`: Query published articles by category slug.
+- `list_articles_by_tag(&pool, tag_slug, limit, offset)`: Query published articles by tag slug.
+- `list_categories(&pool)` / `get_category_by_slug(&pool, slug_or_id)`: Category taxonomies.
+- `list_tags(&pool)` / `get_tag_by_slug(&pool, slug_or_id)`: Tag taxonomies.
+- `markdown_to_html(&content)`: Convert CommonMark content into HTML.
+
+### REST Endpoints
+
+Mountable via `oxide_cms::api_router()`:
+
+- `GET /api/health`: Healthcheck status and DB connection.
+- `POST /api/auth/login`: Admin login returning JWT token.
+- `GET /api/auth/me`: Validate JWT token identity.
+- `GET /api/categories`, `POST /api/categories`, `GET /api/categories/:id_or_slug`, `PUT /api/categories/:id`, `DELETE /api/categories/:id`: Category CRUD.
+- `GET /api/tags`, `POST /api/tags`, `GET /api/tags/:id_or_slug`, `PUT /api/tags/:id`, `DELETE /api/tags/:id`: Tag CRUD.
+- `GET /api/posts`: Query published posts (`?category_slug=`, `?tag_slug=`, `?search=`, `?limit=`, `?offset=`).
+- `POST /api/posts`, `GET /api/posts/:id_or_slug`, `PUT /api/posts/:id`, `DELETE /api/posts/:id`: Post CRUD (admin JWT required for mutations).
